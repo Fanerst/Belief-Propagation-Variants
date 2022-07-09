@@ -38,15 +38,14 @@ class NeighborSet:
             local_nodes = [self.exclude_node] + list(self.node_set)
             J_local = J[local_nodes][:, local_nodes]
             h_local = h[local_nodes]
-            factor = -beta * (config @ J_local @ config + h_local @ config) + config[1:] @ np.log([neighbor_sets[k][self.exclude_node].belief if config[j+1] == 1 else 1-neighbor_sets[k][self.exclude_node].belief for j, k in enumerate(self.node_set)])
+            factor = np.exp(-beta * (config @ J_local @ config + h_local @ config) + config[1:] @ np.log([neighbor_sets[k][self.exclude_node].belief if config[j+1] == 1 else 1-neighbor_sets[k][self.exclude_node].belief for j, k in enumerate(self.node_set)]))
             local_partition_function += factor
             if config[0] == 1:
                 local_enumerator += factor
-        new_belief = local_enumerator / local_partition_function
-        return new_belief
+        self.belief = local_enumerator / local_partition_function
 
 class LoopyBeliefPropagation:
-    def __init__(self, graph:nx.Graph, r:int, J, h, dtype) -> None:
+    def __init__(self, graph:nx.Graph, r:int, J, h, beta:float, dtype) -> None:
         self.graph = graph
         self.node_set = sorted(graph.nodes)
         self.neighbor_r_nodes = {i : NeighborSet(find_r_neighbor_edges(graph, i, r), i) for i in self.node_set}
@@ -61,14 +60,20 @@ class LoopyBeliefPropagation:
         self.dtype = dtype
         self.J = J
         self.h = h
+        self.beta = beta
         pass
 
-    def iteration(self, beta:float):
-        for i in self.node_set:
-            for j in self.neighbor_r_nodes[i].node_set:
-                original_belief = self.neighbor_difference[i][j].belief
-                self.neighbor_difference[i][j].update_belief(beta, self.J, self.h, self.neighbor_difference, self.dtype)
-                print((i, j), original_belief, self.neighbor_difference[i][j].belief)
+    def iteration(self, iter_num:int=10):
+        for iter in range(iter_num):
+            print('-'*10, iter, '-'*10)
+            for i in self.node_set:
+                for j in self.neighbor_r_nodes[i].node_set:
+                    original_belief = self.neighbor_difference[i][j].belief
+                    self.neighbor_difference[i][j].update_belief(self.beta, self.J, self.h, self.neighbor_difference, self.dtype)
+                    print((i, j), original_belief, self.neighbor_difference[i][j].belief)
+
+    def internal_energy(self):
+        return
 
 
 if __name__ == '__main__':
@@ -82,22 +87,36 @@ if __name__ == '__main__':
     g.add_edges_from(edges)
     print(g.number_of_nodes(), g.number_of_edges())
     n = g.number_of_nodes()
+    Ns = {}.fromkeys(range(g.number_of_nodes()))
     for i in g.nodes:
-        print(i, list(g.neighbors(i)))
-    print(find_r_neighbor_edges(g, 0, 1))
-
-    weights = np.ones(len(edges), dtype=dtype)
-    fields = np.zeros(n, dtype=dtype)
-    J = np.zeros([n, n], dtype=dtype)
-    idx = np.array(edges)
-    J[idx[:, 0], idx[:, 1]] = weights
-    J[idx[:, 1], idx[:, 0]] = weights
-
-    lbp = LoopyBeliefPropagation(g, 2, J, fields, dtype)
-    for i in lbp.node_set:
-        print(i, lbp.neighbor_r_nodes[i].node_set, lbp.neighbor_r_nodes[i].edges)
-        for j in lbp.neighbor_r_nodes[i].node_set:
-            print((i,j), lbp.neighbor_difference[i][j].exclude_node, lbp.neighbor_difference[i][j].node_set, lbp.neighbor_difference[i][j].edges)
-            print((i,j), lbp.neighbor_intersection[i][j].exclude_node, lbp.neighbor_intersection[i][j].node_set, lbp.neighbor_intersection[i][j].edges)
+        print(i, list(g.neighbors(i)), set(sum(find_r_neighbor_edges(g, i, 2), start=())))
+        Ns[i] = set(sum(find_r_neighbor_edges(g, i, 2), start=()))
     
-    lbp.iteration(beta=1.0)
+    for i in range(g.number_of_nodes()):
+        for j in range(i+1, g.number_of_nodes()):
+            if i in Ns[j] and j in Ns[i]:
+                print((i, j), Ns[i].intersection(Ns[j]))
+    Nall = sum([list(Ns[i]) for i in Ns.keys()], start=[])
+    for i, j in edges:
+        intersec = Ns[i].intersection(Ns[j])
+        for node in intersec:
+            if node not in Nall:
+                print((i, j), node, Nall)
+            Nall.remove(node)
+    print(len(Nall), Nall)
+
+    # weights = np.ones(len(edges), dtype=dtype)
+    # fields = np.zeros(n, dtype=dtype)
+    # J = np.zeros([n, n], dtype=dtype)
+    # idx = np.array(edges)
+    # J[idx[:, 0], idx[:, 1]] = weights
+    # J[idx[:, 1], idx[:, 0]] = weights
+
+    # lbp = LoopyBeliefPropagation(g, 2, J, fields, 1.0, dtype)
+    # for i in lbp.node_set:
+    #     print(i, lbp.neighbor_r_nodes[i].node_set, lbp.neighbor_r_nodes[i].edges)
+    #     for j in lbp.neighbor_r_nodes[i].node_set:
+    #         print((i,j), lbp.neighbor_difference[i][j].exclude_node, lbp.neighbor_difference[i][j].node_set, lbp.neighbor_difference[i][j].edges)
+    #         print((i,j), lbp.neighbor_intersection[i][j].exclude_node, lbp.neighbor_intersection[i][j].node_set, lbp.neighbor_intersection[i][j].edges)
+    
+    # lbp.iteration()
