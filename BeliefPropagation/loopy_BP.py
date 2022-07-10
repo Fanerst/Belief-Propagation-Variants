@@ -27,22 +27,23 @@ class NeighborSet:
             self.node_set.add(i)
             self.node_set.add(j)
         self.node_set.discard(self.exclude_node)
-        self.belief = 0.5
+        self.belief = 0.5 + np.random.randn()/100
         pass
     
     def update_belief(self, beta, J, h, neighbor_sets, dtype):
         local_partition_function = 0.0
         local_enumerator = 0.0
         for s in range(2**(len(self.node_set) + 1)):
-            config = np.fromiter(np.binary_repr(s, len(self.node_set) + 1), dtype=dtype)
+            config = np.fromiter(np.binary_repr(s, len(self.node_set) + 1), dtype=dtype) * 2 - 1
             local_nodes = [self.exclude_node] + list(self.node_set)
             J_local = J[local_nodes][:, local_nodes]
             h_local = h[local_nodes]
-            factor = np.exp(-beta * (config @ J_local @ config + h_local @ config) + config[1:] @ np.log([neighbor_sets[k][self.exclude_node].belief if config[j+1] == 1 else 1-neighbor_sets[k][self.exclude_node].belief for j, k in enumerate(self.node_set)]))
+            factor = np.exp(-beta * -(config @ J_local @ config + h_local @ config) + np.log([neighbor_sets[k][self.exclude_node].belief if config[j+1] == 1 else 1-neighbor_sets[k][self.exclude_node].belief for j, k in enumerate(self.node_set)]).sum())
             local_partition_function += factor
             if config[0] == 1:
                 local_enumerator += factor
         self.belief = local_enumerator / local_partition_function
+
 
 class LoopyBeliefPropagation:
     def __init__(self, graph:nx.Graph, r:int, J, h, beta:float, dtype) -> None:
@@ -65,58 +66,36 @@ class LoopyBeliefPropagation:
 
     def iteration(self, iter_num:int=10):
         for iter in range(iter_num):
-            print('-'*10, iter, '-'*10)
+            # print('-'*10, iter, '-'*10)
             for i in self.node_set:
                 for j in self.neighbor_r_nodes[i].node_set:
                     original_belief = self.neighbor_difference[i][j].belief
                     self.neighbor_difference[i][j].update_belief(self.beta, self.J, self.h, self.neighbor_difference, self.dtype)
-                    print((i, j), original_belief, self.neighbor_difference[i][j].belief)
+                    # print((i, j), original_belief, self.neighbor_difference[i][j].belief)
 
     def internal_energy(self):
         return
 
-
-if __name__ == '__main__':
-    dtype = np.float64
-    edges = [
-        (0, 1), (0, 2), (0, 4), (1, 2), (1, 4), (1, 12), (1, 13), (2, 3), (2, 15), (3, 4), (3, 9), (3, 10),
-        (4, 5), (5, 6), (5, 7), (5, 8), (9, 10), (9, 11), (12, 13), (12, 14), (13, 14), (15, 16), (15, 17),
-        # (12, 15)
-    ]
-    g = nx.Graph()
-    g.add_edges_from(edges)
-    print(g.number_of_nodes(), g.number_of_edges())
-    n = g.number_of_nodes()
-    Ns = {}.fromkeys(range(g.number_of_nodes()))
-    for i in g.nodes:
-        print(i, list(g.neighbors(i)), set(sum(find_r_neighbor_edges(g, i, 2), start=())))
-        Ns[i] = set(sum(find_r_neighbor_edges(g, i, 2), start=()))
-    
-    for i in range(g.number_of_nodes()):
-        for j in range(i+1, g.number_of_nodes()):
-            if i in Ns[j] and j in Ns[i]:
-                print((i, j), Ns[i].intersection(Ns[j]))
-    Nall = sum([list(Ns[i]) for i in Ns.keys()], start=[])
-    for i, j in edges:
-        intersec = Ns[i].intersection(Ns[j])
-        for node in intersec:
-            if node not in Nall:
-                print((i, j), node, Nall)
-            Nall.remove(node)
-    print(len(Nall), Nall)
-
-    # weights = np.ones(len(edges), dtype=dtype)
-    # fields = np.zeros(n, dtype=dtype)
-    # J = np.zeros([n, n], dtype=dtype)
-    # idx = np.array(edges)
-    # J[idx[:, 0], idx[:, 1]] = weights
-    # J[idx[:, 1], idx[:, 0]] = weights
-
-    # lbp = LoopyBeliefPropagation(g, 2, J, fields, 1.0, dtype)
-    # for i in lbp.node_set:
-    #     print(i, lbp.neighbor_r_nodes[i].node_set, lbp.neighbor_r_nodes[i].edges)
-    #     for j in lbp.neighbor_r_nodes[i].node_set:
-    #         print((i,j), lbp.neighbor_difference[i][j].exclude_node, lbp.neighbor_difference[i][j].node_set, lbp.neighbor_difference[i][j].edges)
-    #         print((i,j), lbp.neighbor_intersection[i][j].exclude_node, lbp.neighbor_intersection[i][j].node_set, lbp.neighbor_intersection[i][j].edges)
-    
-    # lbp.iteration()
+    def marginal(self):
+        marginal = np.zeros(len(self.node_set), dtype=self.dtype)
+        for i in range(len(self.node_set)):
+            local_node_set = [self.node_set[i]] + list(self.neighbor_r_nodes[self.node_set[i]].node_set)
+            assert len(set(local_node_set)) == len(local_node_set)
+            local_partition_function = 0.0
+            local_enumerator = 0.0
+            for s in range(2 ** len(local_node_set)):
+                config = np.fromiter(np.binary_repr(s, len(local_node_set)), dtype=self.dtype) * 2 - 1
+                # local_nodes = list(local_node_set)
+                J_local = self.J[local_node_set][:, local_node_set]
+                h_local = self.h[local_node_set]
+                factor = np.exp(
+                    -self.beta * -(config @ J_local @ config + h_local @ config) + \
+                    np.log([self.neighbor_difference[j][i].belief if config[ind+1] == 1 else 1-self.neighbor_difference[j][i].belief for ind, j in enumerate(self.neighbor_r_nodes[self.node_set[i]].node_set)]).sum()
+                )
+                # print(-(config @ J_local @ config + h_local @ config), np.log([self.neighbor_difference[j][i].belief if config[ind+1] == 1 else 1-self.neighbor_difference[j][i].belief for ind, j in enumerate(self.neighbor_r_nodes[self.node_set[i]].node_set)]))
+                # print(i, self.neighbor_r_nodes[self.node_set[i]].node_set, s, factor)
+                local_partition_function += factor
+                if config[0] == 1:
+                    local_enumerator += factor
+            marginal[i] = local_enumerator / local_partition_function
+        return marginal

@@ -27,13 +27,10 @@ def readgraph(D, graph_dir, couplings):
 def atanh(x):
     return 0.5*np.log((1+x)/(1-x))
 
-def BPofh(D, beta, graph_dir):
-    num_edges, edges, neighbors, J = readgraph(D, graph_dir)
-    stepmax = 1000
-    epsilon = 1e-4
-    difference_max = 10
-    damping_factor = 0
+def BPofh(D, beta, edges, neighbors, J, stepmax=1000, epsilon=1e-4, damping_factor=0.0):
+    num_edges = len(edges)
 
+    difference_max = 10
     h = {}.fromkeys(np.arange(D))
     for key in h.keys():
         h[key] = np.random.randn(len(neighbors[key]))
@@ -170,15 +167,10 @@ def BPofh(D, beta, graph_dir):
 
     return fe_sum, energy_BP, entropy_BP, mag_BP, correlation_BP, step
 
-def BP_revised(D, beta, graph_dir, couplings):
-    num_edges, edges, neighbors, J = readgraph(D, graph_dir, couplings)
-    print(num_edges)
-    stepmax = 1000
-    epsilon = 1e-4
-    difference_max = 10
-    damping_factor = 0
-    # J = torch.from_numpy(J).to(device)
+def BP_revised(D, beta, edges, neighbors, J, stepmax=1000, epsilon=1e-4, damping_factor=0.0):
+    num_edges = len(edges)
 
+    difference_max = 10
     h = np.random.randn(D, D)
     # belief propagation
     for step in range(stepmax):
