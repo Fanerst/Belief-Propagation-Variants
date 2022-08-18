@@ -96,7 +96,7 @@ class LoopyBeliefPropagation:
                 # local_nodes = list(local_node_set)
                 factor = np.exp(
                     -self.beta * -(0.5 * config @ J_local @ config + h_local @ config) + \
-                    np.log([self.neighbor_difference[j][i].belief if config[ind+1] == 1 else 1-self.neighbor_difference[j][i].belief for ind, j in enumerate(self.neighbor_r_nodes[self.node_set[i]].node_set)]).sum()
+                    np.log([self.neighbor_difference[j][self.node_set[i]].belief if config[ind+1] == 1 else 1-self.neighbor_difference[j][self.node_set[i]].belief for ind, j in enumerate(self.neighbor_r_nodes[self.node_set[i]].node_set)]).sum()
                 )
                 energy_local = -(0.5 * config[0] * J_local[0, :] @ config + h_local[0] * config[0])
                 # print(config, energy_local, factor, -(0.5 * config @ J_local @ config + h_local @ config), [self.neighbor_difference[j][i].belief if config[ind+1] == 1 else 1-self.neighbor_difference[j][i].belief for ind, j in enumerate(self.neighbor_r_nodes[self.node_set[i]].node_set)])
@@ -118,7 +118,7 @@ class LoopyBeliefPropagation:
                 config = np.fromiter(np.binary_repr(s, len(local_node_set)), dtype=self.dtype) * 2 - 1
                 factor = np.exp(
                     -self.beta * -(0.5 * config @ J_local @ config + h_local @ config) + \
-                    np.log([self.neighbor_difference[j][i].belief if config[ind+1] == 1 else 1-self.neighbor_difference[j][i].belief for ind, j in enumerate(self.neighbor_r_nodes[self.node_set[i]].node_set)]).sum()
+                    np.log([self.neighbor_difference[j][self.node_set[i]].belief if config[ind+1] == 1 else 1-self.neighbor_difference[j][self.node_set[i]].belief for ind, j in enumerate(self.neighbor_r_nodes[self.node_set[i]].node_set)]).sum()
                 )
                 # print(config, factor, -(0.5 * config @ J_local @ config + h_local @ config), [self.neighbor_difference[j][i].belief if config[ind+1] == 1 else 1-self.neighbor_difference[j][i].belief for ind, j in enumerate(self.neighbor_r_nodes[self.node_set[i]].node_set)])
                 local_partition_function += factor
@@ -128,20 +128,52 @@ class LoopyBeliefPropagation:
             self.neighbor_r_nodes[self.node_set[i]].partition_function = local_partition_function
         return marginal
 
-    def free_energy(self, start_node):
+    def free_energy_path(self, start_node):
         log_partition_function = np.log(self.neighbor_r_nodes[start_node].partition_function)
+        print(start_node, np.log(self.neighbor_r_nodes[start_node].partition_function))
         parent = [start_node]
         children = [self.neighbor_r_nodes[node].node_set for node in parent]
         while len(parent):
             parent_new = []
             children_new = []
+            print(parent, children)
             for i in range(len(parent)):
                 par = parent[i]
                 for child in children[i]:
                     log_partition_function += np.log(self.neighbor_difference[child][par].partition_function)
                     parent_new.append(child)
                     children_new.append(self.neighbor_difference[child][par].node_set)
+                    print((child, par), np.log(self.neighbor_difference[child][par].partition_function))
             parent, children = parent_new, children_new
         
         free_energy = -log_partition_function / self.beta
+        return free_energy
+
+    def free_energy_cover(self):
+        log_partition_function_neighbor_set = [np.log(self.neighbor_r_nodes[node].partition_function) for node in self.node_set]
+        log_partition_function_intersection = []
+        for i in self.node_set:
+            for j in self.neighbor_r_nodes[i].node_set:
+                if i > j:
+                    continue
+                insection_set = self.neighbor_intersection[i][j].node_set
+                local_node_set = [j] + list(insection_set)
+                assert len(set(local_node_set)) == len(local_node_set)
+                local_partition_function = 0.0
+                J_local = self.J[local_node_set][:, local_node_set]
+                h_local = self.h[local_node_set]
+                for s in range(2 ** len(local_node_set)):
+                    config = np.fromiter(np.binary_repr(s, len(local_node_set)), dtype=self.dtype) * 2 - 1
+                    factor = np.exp(
+                        -self.beta * -(0.5 * config @ J_local @ config + h_local @ config) + \
+                        np.log([self.neighbor_difference[k][j].belief if config[ind+1] == 1 else 1-self.neighbor_difference[k][j].belief for ind, k in enumerate(insection_set)]).sum()
+                    )
+                    factor *= self.neighbor_difference[j][i].belief
+                    # print(config, factor, -(0.5 * config @ J_local @ config + h_local @ config), [self.neighbor_difference[j][i].belief if config[ind+1] == 1 else 1-self.neighbor_difference[j][i].belief for ind, j in enumerate(self.neighbor_r_nodes[self.node_set[i]].node_set)])
+                    local_partition_function += factor
+                log_partition_function_intersection.append(np.log(local_partition_function)*2/(len(insection_set)+1))
+                # print((i, j), np.log(local_partition_function), insection_set, len(insection_set))
+        # print(log_partition_function_neighbor_set, sum(log_partition_function_neighbor_set))
+        # print(log_partition_function_intersection, sum(log_partition_function_intersection))
+        free_energy = -(sum(log_partition_function_neighbor_set) - sum(log_partition_function_intersection)) / self.beta
         return free_energy
