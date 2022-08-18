@@ -1,6 +1,5 @@
 import networkx as nx
 import numpy as np
-import torch
 
 
 def min_max(a, b):
@@ -18,6 +17,11 @@ def find_r_neighbor_edges(graph:nx.Graph, i, r):
     return neighbor_r_edges
 
 
+# def neighborset_expectation(neighbor_set, beliefs, expectation_function):
+#     for s in range(2**len(neighbor_set)):
+#         config = np.fromiter(np.binary_repr(s, len(neighbor_set))) * 2 - 1
+        
+
 class NeighborSet:
     def __init__(self, edges, exclude_node) -> None:
         self.node_set = set()
@@ -27,7 +31,8 @@ class NeighborSet:
             self.node_set.add(i)
             self.node_set.add(j)
         self.node_set.discard(self.exclude_node)
-        self.belief = 0.5 + np.random.randn()/100
+        self.belief = 0.5 + np.random.randn() / 100
+        self.partition_function = 2.0
         pass
     
     def update_belief(self, beta, J, h, neighbor_sets, dtype):
@@ -42,15 +47,16 @@ class NeighborSet:
             local_partition_function += factor
             if config[0] == 1:
                 local_enumerator += factor
-            print('-'*5, config, -(0.5 * config @ J_local @ config + h_local @ config), [neighbor_sets[k][self.exclude_node].belief if config[j+1] == 1 else 1-neighbor_sets[k][self.exclude_node].belief for j, k in enumerate(self.node_set)], local_enumerator, local_partition_function)
+            # print('-'*5, config, -(0.5 * config @ J_local @ config + h_local @ config), [neighbor_sets[k][self.exclude_node].belief if config[j+1] == 1 else 1-neighbor_sets[k][self.exclude_node].belief for j, k in enumerate(self.node_set)], local_enumerator, local_partition_function)
         self.belief = local_enumerator / local_partition_function
+        self.partition_function = local_partition_function
 
 
 class LoopyBeliefPropagation:
     def __init__(self, graph:nx.Graph, r:int, J, h, beta:float, dtype) -> None:
         self.graph = graph
         self.node_set = sorted(graph.nodes)
-        # self.neighbors = {i: list(graph.neighbors(i)) for i in self.node_set}
+        self.neighbors = {i: list(graph.neighbors(i)) for i in self.node_set}
         self.neighbor_r_nodes = {i : NeighborSet(find_r_neighbor_edges(graph, i, r), i) for i in self.node_set}
         self.neighbor_difference = {}
         self.neighbor_intersection = {}
@@ -73,7 +79,7 @@ class LoopyBeliefPropagation:
                 for j in self.neighbor_r_nodes[i].node_set:
                     original_belief = self.neighbor_difference[i][j].belief
                     self.neighbor_difference[i][j].update_belief(self.beta, self.J, self.h, self.neighbor_difference, self.dtype)
-                    print((i, j), original_belief, self.neighbor_difference[i][j].belief)
+                    # print((i, j), original_belief, self.neighbor_difference[i][j].belief)
 
     def internal_energy(self):
         energy_sites = np.zeros(len(self.node_set), dtype=self.dtype)
@@ -84,7 +90,7 @@ class LoopyBeliefPropagation:
             local_enumerator = 0.0
             J_local = self.J[local_node_set][:, local_node_set]
             h_local = self.h[local_node_set]
-            print(self.node_set[i], J_local[0, :], local_node_set)
+            # print(self.node_set[i], J_local[0, :], local_node_set)
             for s in range(2 ** len(local_node_set)):
                 config = np.fromiter(np.binary_repr(s, len(local_node_set)), dtype=self.dtype) * 2 - 1
                 # local_nodes = list(local_node_set)
@@ -93,7 +99,7 @@ class LoopyBeliefPropagation:
                     np.log([self.neighbor_difference[j][i].belief if config[ind+1] == 1 else 1-self.neighbor_difference[j][i].belief for ind, j in enumerate(self.neighbor_r_nodes[self.node_set[i]].node_set)]).sum()
                 )
                 energy_local = -(0.5 * config[0] * J_local[0, :] @ config + h_local[0] * config[0])
-                print(config, energy_local, factor, -(0.5 * config @ J_local @ config + h_local @ config), [self.neighbor_difference[j][i].belief if config[ind+1] == 1 else 1-self.neighbor_difference[j][i].belief for ind, j in enumerate(self.neighbor_r_nodes[self.node_set[i]].node_set)])
+                # print(config, energy_local, factor, -(0.5 * config @ J_local @ config + h_local @ config), [self.neighbor_difference[j][i].belief if config[ind+1] == 1 else 1-self.neighbor_difference[j][i].belief for ind, j in enumerate(self.neighbor_r_nodes[self.node_set[i]].node_set)])
                 local_partition_function += factor
                 local_enumerator += factor * energy_local
             energy_sites[i] = local_enumerator / local_partition_function
@@ -110,14 +116,32 @@ class LoopyBeliefPropagation:
             h_local = self.h[local_node_set]
             for s in range(2 ** len(local_node_set)):
                 config = np.fromiter(np.binary_repr(s, len(local_node_set)), dtype=self.dtype) * 2 - 1
-                # local_nodes = list(local_node_set)
                 factor = np.exp(
                     -self.beta * -(0.5 * config @ J_local @ config + h_local @ config) + \
                     np.log([self.neighbor_difference[j][i].belief if config[ind+1] == 1 else 1-self.neighbor_difference[j][i].belief for ind, j in enumerate(self.neighbor_r_nodes[self.node_set[i]].node_set)]).sum()
                 )
-                print(config, factor, -(0.5 * config @ J_local @ config + h_local @ config), [self.neighbor_difference[j][i].belief if config[ind+1] == 1 else 1-self.neighbor_difference[j][i].belief for ind, j in enumerate(self.neighbor_r_nodes[self.node_set[i]].node_set)])
+                # print(config, factor, -(0.5 * config @ J_local @ config + h_local @ config), [self.neighbor_difference[j][i].belief if config[ind+1] == 1 else 1-self.neighbor_difference[j][i].belief for ind, j in enumerate(self.neighbor_r_nodes[self.node_set[i]].node_set)])
                 local_partition_function += factor
                 if config[0] == 1:
                     local_enumerator += factor
             marginal[i] = local_enumerator / local_partition_function
+            self.neighbor_r_nodes[self.node_set[i]].partition_function = local_partition_function
         return marginal
+
+    def free_energy(self, start_node):
+        log_partition_function = np.log(self.neighbor_r_nodes[start_node].partition_function)
+        parent = [start_node]
+        children = [self.neighbor_r_nodes[node].node_set for node in parent]
+        while len(parent):
+            parent_new = []
+            children_new = []
+            for i in range(len(parent)):
+                par = parent[i]
+                for child in children[i]:
+                    log_partition_function += np.log(self.neighbor_difference[child][par].partition_function)
+                    parent_new.append(child)
+                    children_new.append(self.neighbor_difference[child][par].node_set)
+            parent, children = parent_new, children_new
+        
+        free_energy = -log_partition_function / self.beta
+        return free_energy
