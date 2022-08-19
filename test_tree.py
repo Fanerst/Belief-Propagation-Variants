@@ -291,12 +291,13 @@ def test_tree():
     torch.manual_seed(0)
     g = nx.random_tree(number_vertices, seed=0)
     g.add_edge(3, 6)
+    # g = nx.random_regular_graph(3, number_vertices, seed=0)
     print(g.edges)
     adj_matrix = torch.from_numpy(nx.adjacency_matrix(g, nodelist=list(g.nodes)).todense()).to(torch.float64)
     weights = torch.ones_like(adj_matrix)# torch.rand_like(adj_matrix)
     weights = (weights + weights.T) / 2
     coupling_matrix = weights * adj_matrix
-    fields = torch.zeros(number_vertices, dtype=torch.float64)
+    fields = torch.randn(number_vertices, dtype=torch.float64)
 
     exact_solver = Exact(g.copy(), coupling_matrix, fields, beta, 'cpu', 0)
     mag_exact = exact_solver.magnetization().cpu()
@@ -330,11 +331,14 @@ def test_tree():
     marginal = lbp.marginal()
     magnetzation = marginal - (1-marginal)
     e_lbp = lbp.internal_energy()
-    fe_lbps = [lbp.free_energy(node) for node in g.nodes]
+    # fe_lbps = [lbp.free_energy(node) for node in [0]]
+    # fe_lbps = lbp.free_energy_path(0)
+    # print(fe_lbps)
+    fe_lbp = lbp.free_energy_cover()
     print('loopy BP marginal:', marginal)
     print('loopy BP magnetzation:', magnetzation)
     print('loopy BP internal energy:', e_lbp)
-    print('loopy BP free energy:', fe_lbps)
+    print('loopy BP free energy:', fe_lbp)
 
 
 if __name__ == '__main__':
